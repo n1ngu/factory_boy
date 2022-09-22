@@ -14,11 +14,12 @@ Usage:
 
 
 import contextlib
+import typing as t
 
 import faker
 import faker.config
 
-from . import declarations
+from . import declarations, builder
 
 
 class Faker(declarations.BaseDeclaration):
@@ -35,24 +36,24 @@ class Faker(declarations.BaseDeclaration):
     Usage:
         >>> foo = factory.Faker('name')
     """
-    def __init__(self, provider, **kwargs):
+    def __init__(self, provider: str, **kwargs: t.Any):
         locale = kwargs.pop('locale', None)
         self.provider = provider
         super().__init__(
             locale=locale,
             **kwargs)
 
-    def evaluate(self, instance, step, extra):
+    def evaluate(self, instance: builder.Resolver, step: builder.BuildStep, extra: dict[str, t.Any]) -> t.Any:
         locale = extra.pop('locale')
         subfaker = self._get_faker(locale)
         return subfaker.format(self.provider, **extra)
 
-    _FAKER_REGISTRY: dict = {}
-    _DEFAULT_LOCALE = faker.config.DEFAULT_LOCALE
+    _FAKER_REGISTRY: dict[str, faker.Faker] = {}
+    _DEFAULT_LOCALE: str = faker.config.DEFAULT_LOCALE
 
     @classmethod
     @contextlib.contextmanager
-    def override_default_locale(cls, locale):
+    def override_default_locale(cls, locale: str) -> t.Generator[None, None, None]:
         old_locale = cls._DEFAULT_LOCALE
         cls._DEFAULT_LOCALE = locale
         try:
@@ -61,7 +62,7 @@ class Faker(declarations.BaseDeclaration):
             cls._DEFAULT_LOCALE = old_locale
 
     @classmethod
-    def _get_faker(cls, locale=None):
+    def _get_faker(cls, locale: str | None = None) -> faker.Faker:
         if locale is None:
             locale = cls._DEFAULT_LOCALE
 
@@ -72,6 +73,6 @@ class Faker(declarations.BaseDeclaration):
         return cls._FAKER_REGISTRY[locale]
 
     @classmethod
-    def add_provider(cls, provider, locale=None):
+    def add_provider(cls, provider: t.Any, locale: str | None = None) -> None:
         """Add a new Faker provider for the specified locale"""
         cls._get_faker(locale).add_provider(provider)

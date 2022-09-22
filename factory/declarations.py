@@ -3,9 +3,9 @@
 
 import itertools
 import logging
-import typing as T
+import typing as t
 
-from . import enums, errors, utils
+from . import enums, errors, utils, builder
 
 logger = logging.getLogger('factory.generate')
 
@@ -24,11 +24,11 @@ class BaseDeclaration(utils.OrderedBase):
     #: Set to False on declarations that perform their own unrolling.
     UNROLL_CONTEXT_BEFORE_EVALUATION = True
 
-    def __init__(self, **defaults):
+    def __init__(self, **defaults: t.Any):
         super().__init__()
         self._defaults = defaults or {}
 
-    def unroll_context(self, instance, step, context):
+    def unroll_context(self, instance: builder.Resolver, step: builder.BuildStep, context):
         full_context = dict()
         full_context.update(self._defaults)
         full_context.update(context)
@@ -43,11 +43,11 @@ class BaseDeclaration(utils.OrderedBase):
         subfactory = factory.base.DictFactory
         return step.recurse(subfactory, full_context, force_sequence=step.sequence)
 
-    def evaluate_pre(self, instance, step, overrides):
+    def evaluate_pre(self, instance: builder.Resolver, step: builder.BuildStep, overrides):
         context = self.unroll_context(instance, step, overrides)
         return self.evaluate(instance, step, context)
 
-    def evaluate(self, instance, step, extra):
+    def evaluate(self, instance: builder.Resolver, step: builder.BuildStep, extra):
         """Evaluate this declaration.
 
         Args:
