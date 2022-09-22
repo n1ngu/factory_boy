@@ -1,11 +1,15 @@
 # Copyright: See the LICENSE file.
 
 
+import typing as t
 import collections
 import importlib
 
 
-def import_object(module_name, attribute_name):
+T = t.TypeVar("T")
+
+
+def import_object(module_name: str, attribute_name: str) -> t.Any:
     """Import an object from its absolute path.
 
     Example:
@@ -24,14 +28,14 @@ class log_pprint:
     """
     __slots__ = ['args', 'kwargs']
 
-    def __init__(self, args=(), kwargs=None):
+    def __init__(self, args: t.Sequence[t.Any] = (), kwargs: dict[str, t.Any] | None = None):
         self.args = args
         self.kwargs = kwargs or {}
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return repr(str(self))
 
-    def __str__(self):
+    def __str__(self) -> str:
         return ', '.join(
             [
                 repr(arg) for arg in self.args
@@ -44,13 +48,13 @@ class log_pprint:
 
 class ResetableIterator:
     """An iterator wrapper that can be 'reset()' to its start."""
-    def __init__(self, iterator, **kwargs):
+    def __init__(self, iterator: t.Iterator[T], **kwargs: t.Any):
         super().__init__(**kwargs)
         self.iterator = iter(iterator)
-        self.past_elements = collections.deque()
-        self.next_elements = collections.deque()
+        self.past_elements: collections.deque[T] = collections.deque()
+        self.next_elements: collections.deque[T] = collections.deque()
 
-    def __iter__(self):
+    def __iter__(self) -> t.Generator[T, None, None]:
         while True:
             if self.next_elements:
                 yield self.next_elements.popleft()
@@ -63,7 +67,7 @@ class ResetableIterator:
                     self.past_elements.append(value)
                     yield value
 
-    def reset(self):
+    def reset(self) -> None:
         self.next_elements.clear()
         self.next_elements.extend(self.past_elements)
 
@@ -76,12 +80,12 @@ class OrderedBase:
 
     CREATION_COUNTER_FIELD = '_creation_counter'
 
-    def __init__(self, **kwargs):
+    def __init__(self, **kwargs: t.Any):
         super().__init__(**kwargs)
         if type(self) is not OrderedBase:
             self.touch_creation_counter()
 
-    def touch_creation_counter(self):
+    def touch_creation_counter(self) -> None:
         bases = type(self).__mro__
         root = bases[bases.index(OrderedBase) - 1]
         if not hasattr(root, self.CREATION_COUNTER_FIELD):
@@ -91,7 +95,7 @@ class OrderedBase:
         setattr(root, self.CREATION_COUNTER_FIELD, next_counter + 1)
 
 
-def sort_ordered_objects(items, getter=lambda x: x):
+def sort_ordered_objects(items: t.Iterable[T], getter: t.Callable[[T], t.Any] = lambda x: x) -> list[T]:
     """Sort an iterable of OrderedBase instances.
 
     Args:
