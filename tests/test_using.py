@@ -960,13 +960,14 @@ class UsingFactoryTestCase(unittest.TestCase):
 
             one = 'one'
 
-        class TestOtherFactory(factory.Factory):
-            class Meta:
-                model = TestObject
+        class TestObjectFactoryA(TestObjectFactory):
+            one = 'one'
+
+        class TestObjectFactoryB(TestObjectFactory):
             two = 'two'
             four = 'four'
 
-        class TestFactory(TestObjectFactory, TestOtherFactory):
+        class TestFactory(TestObjectFactoryA, TestObjectFactoryB):
             three = 'three'
 
         obj = TestFactory.build(two=2)

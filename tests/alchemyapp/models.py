@@ -5,7 +5,7 @@
 import os
 
 from sqlalchemy import Column, Integer, Unicode, create_engine
-from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.ext.declarative import declarative_base, DeclarativeMeta
 from sqlalchemy.orm import scoped_session, sessionmaker
 
 try:
@@ -35,7 +35,7 @@ else:
 session = scoped_session(sessionmaker())
 engine = create_engine(engine_name)
 session.configure(bind=engine)
-Base = declarative_base()
+Base: DeclarativeMeta = declarative_base()
 
 
 class StandardModel(Base):
