@@ -1,5 +1,7 @@
 # Copyright: See the LICENSE file.
 
+import typing as t
+
 # Strategies
 BUILD_STRATEGY = 'build'
 CREATE_STRATEGY = 'create'
@@ -20,5 +22,5 @@ class BuilderPhase:
     POST_INSTANTIATION = 'post_instance'
 
 
-def get_builder_phase(obj):
+def get_builder_phase(obj: t.Any) -> t.Literal["attributes", "post_instance", None]:
     return getattr(obj, 'FACTORY_BUILDER_PHASE', None)
