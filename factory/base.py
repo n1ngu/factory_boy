@@ -637,9 +637,8 @@ class Factory(BaseFactory, metaclass=FactoryMetaClass):
     class Meta(BaseMeta):
         pass
 
-
-# Backwards compatibility
-Factory.AssociatedClassError = errors.AssociatedClassError
+    # Backwards compatibility
+    AssociatedClassError = errors.AssociatedClassError
 
 
 class StubObject:

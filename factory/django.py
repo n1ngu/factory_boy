@@ -22,7 +22,7 @@ logger = logging.getLogger('factory.generate')
 DEFAULT_DB_ALIAS = 'default'  # Same as django.db.DEFAULT_DB_ALIAS
 
 
-_LAZY_LOADS = {}
+_LAZY_LOADS: dict = {}
 
 
 def get_model(app, model):

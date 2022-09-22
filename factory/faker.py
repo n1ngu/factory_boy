@@ -47,7 +47,7 @@ class Faker(declarations.BaseDeclaration):
         subfaker = self._get_faker(locale)
         return subfaker.format(self.provider, **extra)
 
-    _FAKER_REGISTRY = {}
+    _FAKER_REGISTRY: dict = {}
     _DEFAULT_LOCALE = faker.config.DEFAULT_LOCALE
 
     @classmethod

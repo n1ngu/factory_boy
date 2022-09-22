@@ -1,10 +1,12 @@
 import random
-
 import faker.generator
 
-randgen = random.Random()
 
-randgen.state_set = False
+class Random(random.Random):
+    state_set: bool = False
+
+
+randgen = Random()
 
 
 def get_random_state():
@@ -25,6 +27,6 @@ def set_random_state(state):
 
 def reseed_random(seed):
     """Reseed factory.fuzzy's random generator."""
-    r = random.Random(seed)
+    r = Random(seed)
     random_internal_state = r.getstate()
     set_random_state(random_internal_state)
