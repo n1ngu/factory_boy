@@ -44,7 +44,7 @@ class FactoryMetaClass(type):
             raise errors.UnknownStrategy('Unknown Meta.strategy: {}'.format(
                 cls._meta.strategy))
 
-    def __new__(mcs, class_name, bases, attrs):
+    def __new__(mcs, class_name: str, bases: tuple[type], attrs: dict[str, object]) -> "FactoryMetaClass":
         """Record attributes as a pattern for later instance construction.
 
         This is called when a new Factory subclass is defined; it will collect
@@ -411,6 +411,9 @@ class BaseFactory:
     # Backwards compatibility
     UnknownStrategy = errors.UnknownStrategy
     UnsupportedStrategy = errors.UnsupportedStrategy
+
+    __module__: str
+    __name__: str
 
     def __new__(cls, *args, **kwargs):
         """Would be called if trying to instantiate the class."""

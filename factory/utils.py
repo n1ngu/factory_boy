@@ -46,7 +46,7 @@ class log_pprint:
         )
 
 
-class ResetableIterator:
+class ResetableIterator(t.Generic[T]):
     """An iterator wrapper that can be 'reset()' to its start."""
     def __init__(self, iterator: t.Iterator[T], **kwargs: t.Any):
         super().__init__(**kwargs)

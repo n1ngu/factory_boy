@@ -5,12 +5,16 @@
 
 import contextlib
 import logging
+import typing as t
+import _typeshed
 
 from . import base, declarations
 
+Klass = t.TypeVar("Klass")
+
 
 @contextlib.contextmanager
-def debug(logger='factory', stream=None):
+def debug(logger: str = 'factory', stream: _typeshed.SupportsWrite[str]|None=None) -> t.Generator[None, None, None]:
     logger_obj = logging.getLogger(logger)
     old_level = logger_obj.level
 
@@ -26,7 +30,7 @@ def debug(logger='factory', stream=None):
         logger_obj.removeHandler(handler)
 
 
-def make_factory(klass, **kwargs):
+def make_factory(klass: type, **kwargs: t.Any) -> base.FactoryMetaClass:
     """Create a new, simple factory for the given class."""
     factory_name = '%sFactory' % klass.__name__
 
@@ -34,7 +38,7 @@ def make_factory(klass, **kwargs):
         model = klass
 
     kwargs['Meta'] = Meta
-    base_class = kwargs.pop('FACTORY_CLASS', base.Factory)
+    base_class: type = kwargs.pop('FACTORY_CLASS', base.Factory)
 
     factory_class = type(base.Factory).__new__(type(base.Factory), factory_name, (base_class,), kwargs)
     factory_class.__name__ = '%sFactory' % klass.__name__
@@ -42,7 +46,7 @@ def make_factory(klass, **kwargs):
     return factory_class
 
 
-def build(klass, **kwargs):
+def build(klass: t.Type[Klass], **kwargs: t.Any) -> Klass:
     """Create a factory for the given class, and build an instance."""
     return make_factory(klass, **kwargs).build()
 

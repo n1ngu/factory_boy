@@ -5,7 +5,7 @@ import itertools
 import logging
 import typing as t
 
-from . import enums, errors, utils, builder
+from . import enums, errors, utils, builder, base
 
 logger = logging.getLogger('factory.generate')
 
@@ -28,7 +28,7 @@ class BaseDeclaration(utils.OrderedBase):
         super().__init__()
         self._defaults = defaults or {}
 
-    def unroll_context(self, instance: builder.Resolver, step: builder.BuildStep, context):
+    def unroll_context(self, instance: builder.Resolver, step: builder.BuildStep, context: dict[str, t.Any]) -> t.Any:
         full_context = dict()
         full_context.update(self._defaults)
         full_context.update(context)
@@ -43,11 +43,11 @@ class BaseDeclaration(utils.OrderedBase):
         subfactory = factory.base.DictFactory
         return step.recurse(subfactory, full_context, force_sequence=step.sequence)
 
-    def evaluate_pre(self, instance: builder.Resolver, step: builder.BuildStep, overrides):
+    def evaluate_pre(self, instance: builder.Resolver, step: builder.BuildStep, overrides: dict[str, t.Any]) -> t.Any:
         context = self.unroll_context(instance, step, overrides)
         return self.evaluate(instance, step, context)
 
-    def evaluate(self, instance: builder.Resolver, step: builder.BuildStep, extra):
+    def evaluate(self, instance: builder.Resolver, step: builder.BuildStep, extra: dict[str, t.Any]) -> t.Any:
         """Evaluate this declaration.
 
         Args:
@@ -66,7 +66,18 @@ class OrderedDeclaration(BaseDeclaration):
     # FIXME(rbarrois)
 
 
-class LazyFunction(BaseDeclaration):
+R = t.TypeVar("R")
+
+
+class _FunctionDeclaration(BaseDeclaration, t.Generic[R]):
+    # function: t.Callable[..., R]
+
+    def __init__(self, function: t.Callable[..., R]):
+        super().__init__()
+        self.function = function
+
+
+class LazyFunction(_FunctionDeclaration[R]):
     """Simplest BaseDeclaration computed by calling the given function.
 
     Attributes:
@@ -74,16 +85,12 @@ class LazyFunction(BaseDeclaration):
             returning the computed value.
     """
 
-    def __init__(self, function):
-        super().__init__()
-        self.function = function
-
-    def evaluate(self, instance, step, extra):
+    def evaluate(self, instance: builder.Resolver, step: builder.BuildStep, extra: dict[str, t.Any]) -> R:
         logger.debug("LazyFunction: Evaluating %r on %r", self.function, step)
         return self.function()
 
 
-class LazyAttribute(BaseDeclaration):
+class LazyAttribute(_FunctionDeclaration[R]):
     """Specific BaseDeclaration computed using a lambda.
 
     Attributes:
@@ -91,16 +98,12 @@ class LazyAttribute(BaseDeclaration):
             returning the computed value.
     """
 
-    def __init__(self, function):
-        super().__init__()
-        self.function = function
-
-    def evaluate(self, instance, step, extra):
+    def evaluate(self, instance: builder.Resolver, step: builder.BuildStep, extra: dict[str, t.Any]) -> R:
         logger.debug("LazyAttribute: Evaluating %r on %r", self.function, instance)
         return self.function(instance)
 
 
-class Transformer(LazyFunction):
+class Transformer(_FunctionDeclaration[R]):
     """Transform value using given function.
 
     Attributes:
@@ -108,11 +111,11 @@ class Transformer(LazyFunction):
         value: passed as the first argument to the transform function.
     """
 
-    def __init__(self, transform, value, *args, **kwargs):
+    def __init__(self, transform: t.Callable[..., R], value: t.Any, *args: t.Any, **kwargs: t.Any):
         super().__init__(transform, *args, **kwargs)
         self.value = value
 
-    def evaluate(self, instance, step, extra):
+    def evaluate(self, instance: builder.Resolver, step: builder.BuildStep, extra: dict[str, t.Any]) -> R:
         return self.function(self.value)
 
 
@@ -120,7 +123,7 @@ class _UNSPECIFIED:
     pass
 
 
-def deepgetattr(obj, name, default=_UNSPECIFIED):
+def deepgetattr(obj: object, name: str, default: t.Any = _UNSPECIFIED) -> t.Any:
     """Try to retrieve the given attribute of an object, digging on '.'.
 
     This is an extended getattr, digging deeper if '.' is found.
@@ -162,7 +165,7 @@ class SelfAttribute(BaseDeclaration):
             exist.
     """
 
-    def __init__(self, attribute_name, default=_UNSPECIFIED):
+    def __init__(self, attribute_name: str, default: t.Any = _UNSPECIFIED):
         super().__init__()
         depth = len(attribute_name) - len(attribute_name.lstrip('.'))
         attribute_name = attribute_name[depth:]
@@ -171,7 +174,7 @@ class SelfAttribute(BaseDeclaration):
         self.attribute_name = attribute_name
         self.default = default
 
-    def evaluate(self, instance, step, extra):
+    def evaluate(self, instance: builder.Resolver, step: builder.BuildStep, extra: dict[str, t.Any]) -> t.Any:
         if self.depth > 1:
             # Fetching from a parent
             target = step.chain[self.depth - 1]
@@ -181,7 +184,7 @@ class SelfAttribute(BaseDeclaration):
         logger.debug("SelfAttribute: Picking attribute %r on %r", self.attribute_name, target)
         return deepgetattr(target, self.attribute_name, self.default)
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return '<%s(%r, default=%r)>' % (
             self.__class__.__name__,
             self.attribute_name,
@@ -189,7 +192,10 @@ class SelfAttribute(BaseDeclaration):
         )
 
 
-class Iterator(BaseDeclaration):
+T = t.TypeVar("T")
+
+
+class Iterator(BaseDeclaration, t.Generic[T]):
     """Fill this value using the values returned by an iterator.
 
     Warning: the iterator should not end !
@@ -199,17 +205,18 @@ class Iterator(BaseDeclaration):
         getter (callable or None): a function to parse returned values
     """
 
-    def __init__(self, iterator, cycle=True, getter=None):
+    iterator: utils.ResetableIterator[T]
+
+    def __init__(self, iterator: t.Iterator[T], cycle: bool = True, getter: t.Callable[[T], T] | None = None):
         super().__init__()
         self.getter = getter
-        self.iterator = None
 
         if cycle:
             self.iterator_builder = lambda: utils.ResetableIterator(itertools.cycle(iterator))
         else:
             self.iterator_builder = lambda: utils.ResetableIterator(iterator)
 
-    def evaluate(self, instance, step, extra):
+    def evaluate(self, instance: builder.Resolver, step: builder.BuildStep, extra: dict[str, t.Any]) -> t.Any:
         # Begin unrolling as late as possible.
         # This helps with ResetableIterator(MyModel.objects.all())
         if self.iterator is None:
@@ -221,13 +228,23 @@ class Iterator(BaseDeclaration):
             return value
         return self.getter(value)
 
-    def reset(self):
+    def reset(self) -> None:
         """Reset the internal iterator."""
         if self.iterator is not None:
             self.iterator.reset()
 
 
-class Sequence(BaseDeclaration):
+F2 = t.TypeVar("F2")
+
+
+class _Sequence(BaseDeclaration, t.Generic[F2]):
+
+    def __init__(self, function: F2):
+        super().__init__()
+        self.function = function
+
+
+class Sequence(_Sequence[t.Callable[[int], t.Any]]):
     """Specific BaseDeclaration to use for 'sequenced' fields.
 
     These fields are typically used to generate increasing unique values.
@@ -236,16 +253,13 @@ class Sequence(BaseDeclaration):
         function (function): A function, expecting the current sequence counter
             and returning the computed value.
     """
-    def __init__(self, function):
-        super().__init__()
-        self.function = function
 
-    def evaluate(self, instance, step, extra):
+    def evaluate(self, instance: builder.Resolver, step: builder.BuildStep, extra: dict[str, t.Any]) -> t.Any:
         logger.debug("Sequence: Computing next value of %r for seq=%s", self.function, step.sequence)
         return self.function(int(step.sequence))
 
 
-class LazyAttributeSequence(Sequence):
+class LazyAttributeSequence(_Sequence[t.Callable[[builder.Resolver, int], t.Any]]):
     """Composite of a LazyAttribute and a Sequence.
 
     Attributes:
@@ -254,7 +268,8 @@ class LazyAttributeSequence(Sequence):
         type (function): A function converting an integer into the expected kind
             of counter for the 'function' attribute.
     """
-    def evaluate(self, instance, step, extra):
+
+    def evaluate(self, instance: builder.Resolver, step: builder.BuildStep, extra: dict[str, t.Any]) -> t.Any:
         logger.debug(
             "LazyAttributeSequence: Computing next value of %r for seq=%s, obj=%r",
             self.function, step.sequence, instance)
@@ -270,12 +285,12 @@ class ContainerAttribute(BaseDeclaration):
         strict (bool): Whether evaluating should fail when the containers are
             not passed in (i.e used outside a SubFactory).
     """
-    def __init__(self, function, strict=True):
+    def __init__(self, function: t.Callable[[builder.Resolver, t.Any], t.Any], strict: bool = True):
         super().__init__()
         self.function = function
         self.strict = strict
 
-    def evaluate(self, instance, step, extra):
+    def evaluate(self, instance: builder.Resolver, step: builder.BuildStep, extra: dict[str, t.Any]) -> t.Any:
         """Evaluate the current ContainerAttribute.
 
         Args:
@@ -303,7 +318,7 @@ class ParameteredAttribute(BaseDeclaration):
             May be overridden by call-time parameters.
     """
 
-    def evaluate(self, instance, step, extra):
+    def evaluate(self, instance: builder.Resolver, step: builder.BuildStep, extra: dict[str, t.Any]) -> t.Any:
         """Evaluate the current definition and fill its attributes.
 
         Uses attributes definition in the following order:
@@ -319,7 +334,7 @@ class ParameteredAttribute(BaseDeclaration):
         """
         return self.generate(step, extra)
 
-    def generate(self, step, params):
+    def generate(self, step: builder.BuildStep, params: dict[str, t.Any]) -> t.Any:
         """Actually generate the related attribute.
 
         Args:
@@ -342,8 +357,10 @@ class _FactoryWrapper:
     Such args can be either a Factory subclass, or a fully qualified import
     path for that subclass (e.g 'myapp.factories.MyFactory').
     """
-    def __init__(self, factory_or_path):
-        self.factory = None
+
+    factory: type
+
+    def __init__(self, factory_or_path: base.Factory | str):
         self.module = self.name = ''
         if isinstance(factory_or_path, type):
             self.factory = factory_or_path
@@ -355,7 +372,7 @@ class _FactoryWrapper:
                     "%r instead." % factory_or_path)
             self.module, self.name = factory_or_path.rsplit('.', 1)
 
-    def get(self):
+    def get(self) -> type:
         if self.factory is None:
             self.factory = utils.import_object(
                 self.module,
@@ -363,7 +380,7 @@ class _FactoryWrapper:
             )
         return self.factory
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         if self.factory is None:
             return f'<_FactoryImport: {self.module}.{self.name}>'
         else:
@@ -384,15 +401,15 @@ class SubFactory(BaseDeclaration):
     FORCE_SEQUENCE = False
     UNROLL_CONTEXT_BEFORE_EVALUATION = False
 
-    def __init__(self, factory, **kwargs):
+    def __init__(self, factory: str | base.Factory, **kwargs: t.Any):
         super().__init__(**kwargs)
         self.factory_wrapper = _FactoryWrapper(factory)
 
-    def get_factory(self):
+    def get_factory(self) -> type[base.Factory]:
         """Retrieve the wrapped factory.Factory subclass."""
         return self.factory_wrapper.get()
 
-    def evaluate(self, instance, step, extra):
+    def evaluate(self, instance: builder.Resolver, step: builder.BuildStep, extra: dict[str, t.Any]) -> t.Any:
         """Evaluate the current definition and fill its attributes.
 
         Args:
@@ -416,7 +433,7 @@ class Dict(SubFactory):
 
     FORCE_SEQUENCE = True
 
-    def __init__(self, params, dict_factory='factory.DictFactory'):
+    def __init__(self, params: dict[str, t.Any], dict_factory: str | base.Factory = 'factory.DictFactory'):
         super().__init__(dict_factory, **dict(params))
 
 
@@ -425,9 +442,9 @@ class List(SubFactory):
 
     FORCE_SEQUENCE = True
 
-    def __init__(self, params, list_factory='factory.ListFactory'):
-        params = {str(i): v for i, v in enumerate(params)}
-        super().__init__(list_factory, **params)
+    def __init__(self, params: list[t.Any], list_factory: str | base.Factory = 'factory.ListFactory'):
+        params_dict = {str(i): v for i, v in enumerate(params)}
+        super().__init__(list_factory, **params_dict)
 
 
 # Parameters
@@ -435,22 +452,36 @@ class List(SubFactory):
 
 
 class Skip:
-    def __bool__(self):
+    def __bool__(self) -> t.Literal[False]:
         return False
 
 
 SKIP = Skip()
 
 
+def is_str(decider: BaseDeclaration | str) -> t.TypeGuard[str]:
+    return (enums.get_builder_phase(decider) is None)
+
+
+def is_declaration(decider: BaseDeclaration | str) -> t.TypeGuard[BaseDeclaration]:
+    return (enums.get_builder_phase(decider) is not None)
+
+
 class Maybe(BaseDeclaration):
-    def __init__(self, decider, yes_declaration=SKIP, no_declaration=SKIP):
+    def __init__(
+            self,
+            decider: BaseDeclaration | str,
+            yes_declaration: BaseDeclaration | Skip = SKIP,
+            no_declaration: BaseDeclaration | Skip = SKIP):
         super().__init__()
 
-        if enums.get_builder_phase(decider) is None:
+        if is_str(decider):
             # No builder phase => flat value
-            decider = SelfAttribute(decider, default=None)
+            _decider: BaseDeclaration = SelfAttribute(decider, default=None)
+        elif is_declaration(decider):
+            _decider = decider
 
-        self.decider = decider
+        self.decider = _decider
         self.yes = yes_declaration
         self.no = no_declaration
 
@@ -465,7 +496,7 @@ class Maybe(BaseDeclaration):
 
         self.FACTORY_BUILDER_PHASE = used_phases.pop() if used_phases else enums.BuilderPhase.ATTRIBUTE_RESOLUTION
 
-    def evaluate_post(self, instance, step, overrides):
+    def evaluate_post(self, instance: t.Any, step: builder.BuildStep, overrides: t.Any) -> t.Any:
         """Handle post-generation declarations"""
         decider_phase = enums.get_builder_phase(self.decider)
         if decider_phase == enums.BuilderPhase.ATTRIBUTE_RESOLUTION:
@@ -473,13 +504,14 @@ class Maybe(BaseDeclaration):
             # This gives us access to all Params-level definitions.
             choice = self.decider.evaluate_pre(
                 instance=step.stub, step=step, overrides=overrides)
-        else:
+        elif is_postdeclaration(self.decider):
             assert decider_phase == enums.BuilderPhase.POST_INSTANTIATION
             choice = self.decider.evaluate_post(
                 instance=instance, step=step, overrides={})
 
         target = self.yes if choice else self.no
-        if enums.get_builder_phase(target) == enums.BuilderPhase.POST_INSTANTIATION:
+        # if enums.get_builder_phase(target) == enums.BuilderPhase.POST_INSTANTIATION:
+        if is_postdeclaration(target):
             return target.evaluate_post(
                 instance=instance,
                 step=step,
@@ -489,7 +521,7 @@ class Maybe(BaseDeclaration):
             # Flat value (can't be ATTRIBUTE_RESOLUTION, checked in __init__)
             return target
 
-    def evaluate_pre(self, instance, step, overrides):
+    def evaluate_pre(self, instance: builder.Resolver, step: builder.BuildStep, overrides: dict[str, t.Any]) -> t.Any:
         choice = self.decider.evaluate(instance=instance, step=step, extra={})
         target = self.yes if choice else self.no
 
@@ -503,7 +535,7 @@ class Maybe(BaseDeclaration):
             # Flat value (can't be POST_INSTANTIATION, checked in __init__)
             return target
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f'Maybe({self.decider!r}, yes={self.yes!r}, no={self.no!r})'
 
 
@@ -515,7 +547,7 @@ class Parameter(utils.OrderedBase):
     - Optionally, a get_revdeps() function (to compute other parameters it may alter)
     """
 
-    def as_declarations(self, field_name, declarations):
+    def as_declarations(self, field_name: str, declarations: dict[str, BaseDeclaration]) -> dict[str, BaseDeclaration]:
         """Compute the overrides for this parameter.
 
         Args:
@@ -527,23 +559,23 @@ class Parameter(utils.OrderedBase):
         """
         raise NotImplementedError()
 
-    def get_revdeps(self, parameters):
+    def get_revdeps(self, parameters: list[str]) -> list[str]:
         """Retrieve the list of other parameters modified by this one."""
         return []
 
 
 class SimpleParameter(Parameter):
-    def __init__(self, value):
+    def __init__(self, value: BaseDeclaration):
         super().__init__()
         self.value = value
 
-    def as_declarations(self, field_name, declarations):
+    def as_declarations(self, field_name: str, declarations: dict[str, BaseDeclaration]) -> dict[str, BaseDeclaration]:
         return {
             field_name: self.value,
         }
 
     @classmethod
-    def wrap(cls, value):
+    def wrap(cls, value: BaseDeclaration) -> Parameter:
         if not isinstance(value, Parameter):
             return cls(value)
         value.touch_creation_counter()
@@ -552,12 +584,12 @@ class SimpleParameter(Parameter):
 
 class Trait(Parameter):
     """The simplest complex parameter, it enables a bunch of new declarations based on a boolean flag."""
-    def __init__(self, **overrides):
+    def __init__(self, **overrides: BaseDeclaration):
         super().__init__()
         self.overrides = overrides
 
-    def as_declarations(self, field_name, declarations):
-        overrides = {}
+    def as_declarations(self, field_name: str, declarations: dict[str, BaseDeclaration]) -> dict[str, BaseDeclaration]:
+        overrides: dict[str, BaseDeclaration] = {}
         for maybe_field, new_value in self.overrides.items():
             overrides[maybe_field] = Maybe(
                 decider=SelfAttribute(
@@ -572,11 +604,11 @@ class Trait(Parameter):
             )
         return overrides
 
-    def get_revdeps(self, parameters):
+    def get_revdeps(self, parameters: list[str]) -> list[str]:
         """This might alter fields it's injecting."""
         return [param for param in parameters if param in self.overrides]
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return '%s(%s)' % (
             self.__class__.__name__,
             ', '.join('%s=%r' % t for t in self.overrides.items())
@@ -587,10 +619,10 @@ class Trait(Parameter):
 # ===============
 
 
-class PostGenerationContext(T.NamedTuple):
+class PostGenerationContext(t.NamedTuple):
     value_provided: bool
-    value: T.Any
-    extra: T.Dict[str, T.Any]
+    value: t.Any
+    extra: t.Dict[str, t.Any]
 
 
 class PostGenerationDeclaration(BaseDeclaration):
@@ -598,7 +630,7 @@ class PostGenerationDeclaration(BaseDeclaration):
 
     FACTORY_BUILDER_PHASE = enums.BuilderPhase.POST_INSTANTIATION
 
-    def evaluate_post(self, instance, step, overrides):
+    def evaluate_post(self, instance: t.Any, step: builder.BuildStep, overrides: t.Any) -> t.Any:
         context = self.unroll_context(instance, step, overrides)
         postgen_context = PostGenerationContext(
             value_provided=bool('' in context),
@@ -607,7 +639,12 @@ class PostGenerationDeclaration(BaseDeclaration):
         )
         return self.call(instance, step, postgen_context)
 
-    def call(self, instance, step, context):  # pragma: no cover
+    def call(
+            self,
+            instance: t.Any,
+            step: builder.BuildStep,
+            context: PostGenerationContext,
+    ) -> t.NoReturn:  # pragma: no cover
         """Call this hook; no return value is expected.
 
         Args:
@@ -619,13 +656,23 @@ class PostGenerationDeclaration(BaseDeclaration):
         raise NotImplementedError()
 
 
+def is_postdeclaration(declaration: t.Any) -> t.TypeGuard[PostGenerationDeclaration]:
+    return (
+        enums.get_builder_phase(declaration)
+        == enums.BuilderPhase.POST_INSTANTIATION
+    )
+
+
+Extra = t.ParamSpec("Extra")
+
+
 class PostGeneration(PostGenerationDeclaration):
     """Calls a given function once the object has been generated."""
-    def __init__(self, function):
+    def __init__(self, function: t.Callable[Extra, t.Any]):
         super().__init__()
         self.function = function
 
-    def call(self, instance, step, context):
+    def call(self, instance: t.Any, step: builder.BuildStep, context: PostGenerationContext) -> t.Any:
         logger.debug(
             "PostGeneration: Calling %s.%s(%s)",
             self.function.__module__,
@@ -652,18 +699,18 @@ class RelatedFactory(PostGenerationDeclaration):
 
     UNROLL_CONTEXT_BEFORE_EVALUATION = False
 
-    def __init__(self, factory, factory_related_name='', **defaults):
+    def __init__(self, factory: base.Factory, factory_related_name: str = '', **defaults: t.Any):
         super().__init__()
 
         self.name = factory_related_name
         self.defaults = defaults
         self.factory_wrapper = _FactoryWrapper(factory)
 
-    def get_factory(self):
+    def get_factory(self) -> type:
         """Retrieve the wrapped factory.Factory subclass."""
         return self.factory_wrapper.get()
 
-    def call(self, instance, step, context):
+    def call(self, instance: t.Any, step: builder.BuildStep, context: PostGenerationContext) -> t.Any:
         factory = self.get_factory()
 
         if context.value_provided:
@@ -701,20 +748,27 @@ class RelatedFactoryList(RelatedFactory):
             returning a list of 'factory' objects w/ size 'size'.
     """
 
-    def __init__(self, factory, factory_related_name='', size=2, **defaults):
+    def __init__(
+            self,
+            factory: base.Factory,
+            factory_related_name: str = '',
+            size: int | t.Callable[[], int] = 2,
+            **defaults: t.Any):
         self.size = size
         super().__init__(factory, factory_related_name, **defaults)
 
-    def call(self, instance, step, context):
-        parent = super()
+    def call(self, instance: t.Any, step: builder.BuildStep, context: PostGenerationContext) -> t.Any:
         return [
-            parent.call(instance, step, context)
+            super().call(instance, step, context)
             for i in range(self.size if isinstance(self.size, int) else self.size())
         ]
 
 
 class NotProvided:
     pass
+
+
+Arg = tuple[t.Any] | t.Tuple[()]
 
 
 class PostGenerationMethodCall(PostGenerationDeclaration):
@@ -730,7 +784,7 @@ class PostGenerationMethodCall(PostGenerationDeclaration):
             ...
             password = factory.PostGenerationMethodCall('set_pass', password='')
     """
-    def __init__(self, method_name, *args, **kwargs):
+    def __init__(self, method_name: str, *args: Arg, **kwargs: t.Any):
         super().__init__()
         if len(args) > 1:
             raise errors.InvalidDeclarationError(
@@ -741,10 +795,10 @@ class PostGenerationMethodCall(PostGenerationDeclaration):
         self.method_arg = args[0] if args else NotProvided
         self.method_kwargs = kwargs
 
-    def call(self, instance, step, context):
+    def call(self, instance: t.Any, step: builder.BuildStep, context: PostGenerationContext) -> t.Any:
         if not context.value_provided:
             if self.method_arg is NotProvided:
-                args = ()
+                args: Arg = ()
             else:
                 args = (self.method_arg,)
         else:

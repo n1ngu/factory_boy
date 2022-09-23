@@ -1,8 +1,9 @@
 """Build factory instances."""
 
 import collections
+import typing as t
 
-from . import declarations, enums, errors, utils
+from . import declarations, enums, errors, utils, base
 
 DeclarationWithContext = collections.namedtuple(
     'DeclarationWithContext',
@@ -188,7 +189,7 @@ class BuildStep:
         self.sequence = sequence
         self.attributes = {}
         self.parent_step = parent_step
-        self.stub = None
+        self.stub: Resolver = None
 
     def resolve(self, declarations):
         self.stub = Resolver(
@@ -208,7 +209,7 @@ class BuildStep:
             parent_chain = ()
         return (self.stub,) + parent_chain
 
-    def recurse(self, factory, declarations, force_sequence=None):
+    def recurse(self, factory: type, declarations: t.Any, force_sequence: int|None =None) -> t.Any:
         from . import base
         if not issubclass(factory, base.BaseFactory):
             raise errors.AssociatedClassError(
@@ -282,7 +283,7 @@ class StepBuilder:
         )
         return instance
 
-    def recurse(self, factory_meta, extras):
+    def recurse(self, factory_meta: base.Factory, extras: dict[str, t.Any]) -> t.Any:
         """Recurse into a sub-factory call."""
         return self.__class__(factory_meta, extras, strategy=self.strategy)
 
