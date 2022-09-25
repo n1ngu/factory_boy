@@ -23,13 +23,13 @@ class DeclarationSet:
     DeclarationWithContext, containing field name, declaration object and extra context.
     """
 
-    def __init__(self, initial=None):
-        self.declarations = {}
-        self.contexts = collections.defaultdict(dict)
+    def __init__(self, initial: dict[str, declarations.BaseDeclaration] | None = None):
+        self.declarations: dict[str, declarations.BaseDeclaration] = {}
+        self.contexts = collections.defaultdict[str, dict[str, declarations.BaseDeclaration]](dict)
         self.update(initial or {})
 
     @classmethod
-    def split(cls, entry):
+    def split(cls, entry: str) -> tuple[str, str | None]:
         """Split a declaration name into a (declaration, subpath) tuple.
 
         Examples:
@@ -41,12 +41,13 @@ class DeclarationSet:
         ('foo', 'bar__baz')
         """
         if enums.SPLITTER in entry:
-            return entry.split(enums.SPLITTER, 1)
+            (declaration, subpath) = entry.split(enums.SPLITTER, 1)
+            return (declaration, subpath)
         else:
             return (entry, None)
 
     @classmethod
-    def join(cls, root, subkey):
+    def join(cls, root: str, subkey: str | None) -> str:
         """Rebuild a full declaration name from its components.
 
         for every string x, we have `join(split(x)) == x`.
@@ -55,10 +56,10 @@ class DeclarationSet:
             return root
         return enums.SPLITTER.join((root, subkey))
 
-    def copy(self):
+    def copy(self) -> "DeclarationSet":
         return self.__class__(self.as_dict())
 
-    def update(self, values):
+    def update(self, values: dict[str, declarations.BaseDeclaration]) -> None:
         """Add new declarations to this set/
 
         Args:
@@ -84,7 +85,7 @@ class DeclarationSet:
                 )
             )
 
-    def filter(self, entries):
+    def filter(self, entries: t.Iterable[str]) -> list[str]:
         """Filter a set of declarations: keep only those related to this object.
 
         This will keep:
@@ -96,46 +97,46 @@ class DeclarationSet:
             if self.split(entry)[0] in self.declarations
         ]
 
-    def sorted(self):
+    def sorted(self) -> list[str]:
         return utils.sort_ordered_objects(
             self.declarations,
             getter=lambda entry: self.declarations[entry],
         )
 
-    def __contains__(self, key):
+    def __contains__(self, key: str) -> bool:
         return key in self.declarations
 
-    def __getitem__(self, key):
+    def __getitem__(self, key: str) -> DeclarationWithContext:
         return DeclarationWithContext(
             name=key,
             declaration=self.declarations[key],
             context=self.contexts[key],
         )
 
-    def __iter__(self):
+    def __iter__(self) -> t.Iterator[str]:
         return iter(self.declarations)
 
-    def values(self):
+    def values(self) -> t.Generator[DeclarationWithContext, None, None]:
         """Retrieve the list of declarations, with their context."""
         for name in self:
             yield self[name]
 
-    def _items(self):
+    def _items(self) -> t.Generator[tuple[str, declarations.BaseDeclaration], None, None]:
         """Extract a list of (key, value) pairs, suitable for our __init__."""
         for name in self.declarations:
             yield name, self.declarations[name]
             for subkey, value in self.contexts[name].items():
                 yield self.join(name, subkey), value
 
-    def as_dict(self):
+    def as_dict(self) -> dict[str, declarations.BaseDeclaration]:
         """Return a dict() suitable for our __init__."""
         return dict(self._items())
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return '<DeclarationSet: %r>' % self.as_dict()
 
 
-def parse_declarations(decls, base_pre=None, base_post=None):
+def parse_declarations(decls: dict[str, declarations.BaseDeclaration], base_pre: DeclarationSet | None = None, base_post: DeclarationSet | None = None) -> tuple[DeclarationSet, DeclarationSet]:
     pre_declarations = base_pre.copy() if base_pre else DeclarationSet()
     post_declarations = base_post.copy() if base_post else DeclarationSet()
 
@@ -184,14 +185,16 @@ def parse_declarations(decls, base_pre=None, base_post=None):
 
 
 class BuildStep:
-    def __init__(self, builder, sequence, parent_step=None):
+    stub: "Resolver"
+
+    def __init__(self, builder: "StepBuilder", sequence: int, parent_step: "BuildStep" | None = None):
         self.builder = builder
         self.sequence = sequence
-        self.attributes = {}
+        self.attributes: dict[str, t.Any] = {}
         self.parent_step = parent_step
-        self.stub: Resolver = None
+        # self.stub: Resolver = None
 
-    def resolve(self, declarations):
+    def resolve(self, declarations: DeclarationSet) -> None:
         self.stub = Resolver(
             declarations=declarations,
             step=self,
@@ -202,7 +205,7 @@ class BuildStep:
             self.attributes[field_name] = getattr(self.stub, field_name)
 
     @property
-    def chain(self):
+    def chain(self) -> tuple["Resolver", ...]:
         if self.parent_step:
             parent_chain = self.parent_step.chain
         else:
@@ -218,7 +221,7 @@ class BuildStep:
         builder = self.builder.recurse(factory._meta, declarations)
         return builder.build(parent_step=self, force_sequence=force_sequence)
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f"<BuildStep for {self.builder!r}>"
 
 
@@ -231,13 +234,13 @@ class StepBuilder:
     - factory: the factory class being built
     - strategy: the strategy to use
     """
-    def __init__(self, factory_meta, extras, strategy):
+    def __init__(self, factory_meta: base.FactoryOptions, extras: dict[str, t.Any], strategy: enums.Strategy):
         self.factory_meta = factory_meta
         self.strategy = strategy
         self.extras = extras
         self.force_init_sequence = extras.pop('__sequence', None)
 
-    def build(self, parent_step=None, force_sequence=None):
+    def build(self, parent_step: "BuildStep" | None = None, force_sequence: int | None = None) -> t.Any:
         """Build a factory instance."""
         # TODO: Handle "batch build" natively
         pre, post = parse_declarations(
@@ -268,7 +271,7 @@ class StepBuilder:
             kwargs=kwargs,
         )
 
-        postgen_results = {}
+        postgen_results: dict[str, t.Any] = {}
         for declaration_name in post.sorted():
             declaration = post[declaration_name]
             postgen_results[declaration_name] = declaration.declaration.evaluate_post(
@@ -283,11 +286,11 @@ class StepBuilder:
         )
         return instance
 
-    def recurse(self, factory_meta: base.Factory, extras: dict[str, t.Any]) -> t.Any:
+    def recurse(self, factory_meta: base.FactoryOptions, extras: dict[str, t.Any]) -> t.Any:
         """Recurse into a sub-factory call."""
         return self.__class__(factory_meta, extras, strategy=self.strategy)
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f"<StepBuilder({self.factory_meta!r}, strategy={self.strategy!r})>"
 
 
@@ -310,23 +313,23 @@ class Resolver:
 
     __initialized = False
 
-    def __init__(self, declarations, step, sequence):
+    def __init__(self, declarations: DeclarationSet, step: BuildStep, sequence: int):
         self.__declarations = declarations
         self.__step = step
 
-        self.__values = {}
-        self.__pending = []
+        self.__values: dict[str, t.Any] = {}
+        self.__pending: list[str] = []
 
         self.__initialized = True
 
     @property
-    def factory_parent(self):
+    def factory_parent(self) -> "Resolver" | None:
         return self.__step.parent_step.stub if self.__step.parent_step else None
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return '<Resolver for %r>' % self.__step
 
-    def __getattr__(self, name):
+    def __getattr__(self, name: str) -> t.Any:
         """Retrieve an attribute's value.
 
         This will compute it if needed, unless it is already on the list of
@@ -360,7 +363,7 @@ class Resolver:
                 "The parameter %r is unknown. Evaluated attributes are %r, "
                 "definitions are %r." % (name, self.__values, self.__declarations))
 
-    def __setattr__(self, name, value):
+    def __setattr__(self, name: str, value: t.Any) -> None:
         """Prevent setting attributes once __init__ is done."""
         if not self.__initialized:
             return super().__setattr__(name, value)

@@ -1,5 +1,5 @@
 # Copyright: See the LICENSE file.
-
+# type: ignore
 
 """Additional declarations for "fuzzy" attribute definitions."""
 

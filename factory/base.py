@@ -3,12 +3,16 @@
 
 import collections
 import logging
+import typing as t
 import warnings
 
 from . import builder, declarations, enums, errors, utils
 
 logger = logging.getLogger('factory.generate')
 
+
+# TODO M = t.TypeVar("M")
+M = t.Any
 # Factory metaclasses
 
 
@@ -136,7 +140,7 @@ class OptionDefault:
 
 class FactoryOptions:
     def __init__(self):
-        self.factory = None
+        self.factory: BaseFactory = None
         self.base_factory = None
         self.base_declarations = {}
         self.parameters = {}
@@ -154,7 +158,7 @@ class FactoryOptions:
             base_declarations.update(param.as_declarations(name, base_declarations))
         return base_declarations
 
-    def _build_default_options(self):
+    def _build_default_options(self) -> list[OptionDefault]:
         """"Provide the default value for all allowed fields.
 
         Custom FactoryOptions classes should override this method
@@ -177,7 +181,7 @@ class FactoryOptions:
             OptionDefault('rename', {}, inherit=True),
         ]
 
-    def _fill_from_meta(self, meta, base_meta):
+    def _fill_from_meta(self, meta, base_meta) -> None:
         # Exclude private/protected fields from the meta
         if meta is None:
             meta_attrs = {}
@@ -260,7 +264,7 @@ class FactoryOptions:
             self.counter_reference._initialize_counter()
             self._counter = self.counter_reference._counter
 
-    def next_sequence(self):
+    def next_sequence(self) -> int:
         """Retrieve a new sequence ID.
 
         This will call, in order:
@@ -283,7 +287,7 @@ class FactoryOptions:
             value = self.counter_reference.factory._setup_next_sequence()
         self._counter.reset(value)
 
-    def prepare_arguments(self, attributes):
+    def prepare_arguments(self, attributes: dict[str, t.Any]) -> tuple[tuple[t.Any], dict[str, t.Any]]:
         """Convert an attributes dict to a (args, kwargs) tuple."""
         kwargs = dict(attributes)
         # 1. Extension points
@@ -308,7 +312,7 @@ class FactoryOptions:
 
         return args, kwargs
 
-    def instantiate(self, step, args, kwargs):
+    def instantiate(self, step: builder.BuildStep, args: tuple[t.Any], kwargs: dict[str, t.Any]) -> M | "StubObject":
         model = self.get_model_class()
 
         if step.builder.strategy == enums.BUILD_STRATEGY:
@@ -319,7 +323,7 @@ class FactoryOptions:
             assert step.builder.strategy == enums.STUB_STRATEGY
             return StubObject(**kwargs)
 
-    def use_postgeneration_results(self, step, instance, results):
+    def use_postgeneration_results(self, step: builder.BuildStep, instance: t.Any, results: object) -> None:
         self.factory._after_postgeneration(
             instance,
             create=step.builder.strategy == enums.CREATE_STRATEGY,

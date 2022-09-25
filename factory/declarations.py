@@ -664,11 +664,13 @@ def is_postdeclaration(declaration: t.Any) -> t.TypeGuard[PostGenerationDeclarat
 
 
 Extra = t.ParamSpec("Extra")
+# TODO M = t.TypeVar("M")
+M = t.Any
 
 
 class PostGeneration(PostGenerationDeclaration):
     """Calls a given function once the object has been generated."""
-    def __init__(self, function: t.Callable[Extra, t.Any]):
+    def __init__(self, function: t.Callable[[M, bool, t.Any], t.Any]):
         super().__init__()
         self.function = function
 

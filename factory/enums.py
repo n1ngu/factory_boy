@@ -7,6 +7,7 @@ BUILD_STRATEGY = 'build'
 CREATE_STRATEGY = 'create'
 STUB_STRATEGY = 'stub'
 
+Strategy = t.Literal['build', 'create', 'stub']
 
 #: String for splitting an attribute name into a
 #: (subfactory_name, subfactory_field) tuple.
